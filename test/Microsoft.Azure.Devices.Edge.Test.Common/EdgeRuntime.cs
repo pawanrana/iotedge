@@ -48,16 +48,19 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common
             addConfig(builder);
 
             DateTime deployTime = DateTime.Now;
-            EdgeConfiguration config = builder.Build();
+            var finalModules = new EdgeModule[] { };
+            IEnumerable<EdgeConfiguration> configs = builder.BuildConfigurationStages().ToArray();
+            foreach (EdgeConfiguration edgeConfiguration in configs)
+            {
+                await edgeConfiguration.DeployAsync(this.iotHub, token);
+                EdgeModule[] modules = edgeConfiguration.ModuleNames
+                    .Select(id => new EdgeModule(id, this.deviceId, this.iotHub))
+                    .ToArray();
+                await EdgeModule.WaitForStatusAsync(modules, EdgeModuleStatus.Running, token);
+                finalModules = modules;
+            }
 
-            await config.DeployAsync(this.iotHub, token);
-
-            IEnumerable<EdgeModule> modules = config.ModuleNames
-                .Select(id => new EdgeModule(id, this.deviceId, this.iotHub))
-                .ToArray();
-            await EdgeModule.WaitForStatusAsync(modules, EdgeModuleStatus.Running, token);
-
-            return new EdgeDeployment(deployTime, modules);
+            return new EdgeDeployment(deployTime, finalModules);
         }
 
         public Task<EdgeDeployment> DeployConfigurationAsync(CancellationToken token) =>

@@ -10,6 +10,7 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common
     using Microsoft.Azure.Devices.Shared;
     using Microsoft.Azure.EventHubs;
     using Newtonsoft.Json;
+    using Serilog;
     using DeviceTransportType = Microsoft.Azure.Devices.TransportType;
     using EventHubTransportType = Microsoft.Azure.EventHubs.TransportType;
 
@@ -81,13 +82,14 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common
             return await this.RegistryManager.AddDeviceAsync(device, token);
         }
 
-        public Task<Device> CreateEdgeDeviceIdentityAsync(string deviceId, CancellationToken token)
+        public Task<Device> CreateEdgeDeviceIdentityAsync(string deviceId, AuthenticationType authType, X509Thumbprint x509Thumbprint, CancellationToken token)
         {
             Device edge = new Device(deviceId)
             {
                 Authentication = new AuthenticationMechanism()
                 {
-                    Type = AuthenticationType.Sas
+                    Type = authType,
+                    X509Thumbprint = x509Thumbprint
                 },
                 Capabilities = new DeviceCapabilities()
                 {
@@ -144,14 +146,31 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common
             string deviceId,
             string moduleId,
             CloudToDeviceMethod method,
-            CancellationToken token)
+            CancellationToken token,
+            bool retry = true)
         {
-            return Retry.Do(
-                () => this.ServiceClient.InvokeDeviceMethodAsync(deviceId, moduleId, method, token),
-                result => result.Status == 200,
-                e => true,
-                TimeSpan.FromSeconds(5),
-                token);
+            if (retry)
+            {
+                return Retry.Do(
+                    () => this.ServiceClient.InvokeDeviceMethodAsync(deviceId, moduleId, method, token),
+                    result =>
+                    {
+                        Log.Verbose($"Method '{method.MethodName}' on '{deviceId}/{moduleId}' returned: " +
+                            $"{result.Status}\n{result.GetPayloadAsJson()}");
+                        return result.Status == 200;
+                    },
+                    e =>
+                        {
+                            Log.Verbose($"Exception: {e}");
+                            return true;
+                        },
+                    TimeSpan.FromSeconds(5),
+                    token);
+            }
+            else
+            {
+                return this.ServiceClient.InvokeDeviceMethodAsync(deviceId, moduleId, method, token);
+            }
         }
 
         public async Task ReceiveEventsAsync(

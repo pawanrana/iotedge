@@ -52,49 +52,42 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common.Config
             return builder;
         }
 
-        public EdgeConfiguration Build()
+        // Returns two configurations: one with just $edgeAgent and $edgeHub; the other with
+        // everything. This is done to ensure edgeHub's routes are ready before the test modules
+        // start sending messages, to avoid dropped messages. Another way to handle this is to
+        // define all possible routes at the beginning of the test run, but there is added
+        // complexity as module names are assigned dynamically.
+        public IEnumerable<EdgeConfiguration> BuildConfigurationStages()
         {
-            // Build all modules *except* edge agent
-            List<ModuleConfiguration> modules = this.moduleBuilders
-                .Where(b => b.Key != "$edgeAgent")
-                .Select(b => b.Value.Build())
-                .ToList();
-
-            // Build edge agent
-            modules.Insert(0, this.BuildEdgeAgent(modules));
-
-            // Compose edge configuration
-            var config = new ConfigurationContent
+            // Edge agent is not optional; add if necessary
+            if (!this.moduleBuilders.ContainsKey(ModuleName.EdgeAgent))
             {
-                ModulesContent = new Dictionary<string, IDictionary<string, object>>()
-            };
-
-            var moduleNames = new List<string>();
-            var moduleImages = new List<string>();
-
-            foreach (ModuleConfiguration module in modules)
-            {
-                moduleNames.Add(module.Name);
-                moduleImages.Add(module.Image);
-
-                if (module.DesiredProperties.Count != 0)
-                {
-                    config.ModulesContent[module.Name] = new Dictionary<string, object>
-                    {
-                        ["properties.desired"] = module.DesiredProperties
-                    };
-                }
+                this.AddEdgeAgent();
             }
 
-            return new EdgeConfiguration(this.deviceId, moduleNames, moduleImages, config);
+            ILookup<string, ModuleConfiguration> moduleConfigs = this.moduleBuilders
+                .Where(b => b.Key != ModuleName.EdgeAgent) // delay building edge agent
+                .Select(b => b.Value.Build())
+                .ToLookup(m => m.IsSystemModule() ? "system" : "other");
+
+            // Return a configuration for $edgeHub and $edgeAgent
+            List<ModuleConfiguration> modules = moduleConfigs["system"].ToList();
+            modules.Insert(0, this.BuildEdgeAgent(modules));
+            yield return EdgeConfiguration.Create(this.deviceId, modules);
+
+            if (moduleConfigs.Contains("other"))
+            {
+                // Return a configuration for all modules
+                modules = moduleConfigs.SelectMany(m => m).ToList();
+                modules.Insert(0, this.BuildEdgeAgent(modules));
+                yield return EdgeConfiguration.Create(this.deviceId, modules);
+            }
         }
 
         ModuleConfiguration BuildEdgeAgent(IEnumerable<ModuleConfiguration> configs)
         {
-            if (!this.moduleBuilders.TryGetValue("$edgeAgent", out IModuleConfigBuilder agentBuilder))
-            {
-                agentBuilder = this.AddEdgeAgent();
-            }
+            // caller guarantees that $edgeAgent exists in moduleBuilders
+            IModuleConfigBuilder agentBuilder = this.moduleBuilders[ModuleName.EdgeAgent];
 
             // Settings boilerplate
             var settings = new Dictionary<string, object>()
@@ -165,6 +158,11 @@ namespace Microsoft.Azure.Devices.Edge.Test.Common.Config
             agentBuilder.WithDesiredProperties(desiredProperties);
 
             return agentBuilder.Build();
+        }
+
+        public IModuleConfigBuilder GetModule(string name)
+        {
+            return this.moduleBuilders[name];
         }
 
         static (string name, bool system) ParseModuleName(string name) =>

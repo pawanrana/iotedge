@@ -26,17 +26,18 @@ namespace Microsoft.Azure.Devices.Routing.Core.Test.Endpoints
             const int MessagesCount = 10;
             const string EndpointId = "endpoint1";
             var endpoint = new NullEndpoint(EndpointId);
+            var priorities = new List<uint>() { 0, 1, 2, 100, 101, 102 };
             var checkpointer = new NullCheckpointer();
             var endpointExecutorConfig = new EndpointExecutorConfig(TimeSpan.FromHours(1), RetryStrategy.NoRetry, TimeSpan.FromHours(1));
             var asyncEndpointExecutorOptions = new AsyncEndpointExecutorOptions(10);
             var messageStore = new TestMessageStore();
-            var storingAsyncEndpointExecutor = new StoringAsyncEndpointExecutor(endpoint, checkpointer, endpointExecutorConfig, asyncEndpointExecutorOptions, messageStore);
+            var storingAsyncEndpointExecutor = new StoringAsyncEndpointExecutor(endpoint, priorities, checkpointer, endpointExecutorConfig, asyncEndpointExecutorOptions, messageStore);
             IEnumerable<IMessage> messages = GetNewMessages(MessagesCount, 0);
 
             // Act - Send messages to invoke
             foreach (IMessage message in messages)
             {
-                await storingAsyncEndpointExecutor.Invoke(message);
+                await storingAsyncEndpointExecutor.Invoke(message, 0, 3600);
             }
 
             // Assert - Check that the message store received the messages sent to invoke.
@@ -59,7 +60,7 @@ namespace Microsoft.Azure.Devices.Routing.Core.Test.Endpoints
             messages = GetNewMessages(MessagesCount, MessagesCount);
             foreach (IMessage message in messages)
             {
-                await storingAsyncEndpointExecutor.Invoke(message);
+                await storingAsyncEndpointExecutor.Invoke(message, 0, 3600);
             }
 
             // Assert - Make sure the store now has the old and the new messages.
@@ -81,17 +82,18 @@ namespace Microsoft.Azure.Devices.Routing.Core.Test.Endpoints
             const int MessagesCount = 10;
             const string EndpointId = "endpoint1";
             var endpoint = new TestEndpoint(EndpointId);
+            var priorities = new List<uint>() { 0, 1, 2, 100, 101, 102 };
             ICheckpointer checkpointer = await Checkpointer.CreateAsync(EndpointId, new CheckpointStore());
             var endpointExecutorConfig = new EndpointExecutorConfig(TimeSpan.FromHours(1), RetryStrategy.NoRetry, TimeSpan.FromHours(1));
             var asyncEndpointExecutorOptions = new AsyncEndpointExecutorOptions(4, TimeSpan.FromSeconds(2));
             var messageStore = new TestMessageStore();
-            var storingAsyncEndpointExecutor = new StoringAsyncEndpointExecutor(endpoint, checkpointer, endpointExecutorConfig, asyncEndpointExecutorOptions, messageStore);
+            var storingAsyncEndpointExecutor = new StoringAsyncEndpointExecutor(endpoint, priorities, checkpointer, endpointExecutorConfig, asyncEndpointExecutorOptions, messageStore);
             IEnumerable<IMessage> messages = GetNewMessages(MessagesCount, 0);
 
             // Act - Send messages to invoke
             foreach (IMessage message in messages)
             {
-                await storingAsyncEndpointExecutor.Invoke(message);
+                await storingAsyncEndpointExecutor.Invoke(message, 0, 3600);
             }
 
             await Task.Delay(TimeSpan.FromSeconds(10));
@@ -114,17 +116,18 @@ namespace Microsoft.Azure.Devices.Routing.Core.Test.Endpoints
             const string EndpointId = "endpoint1";
             const int RoutingPumpBatchSize = 10;
             var endpoint = new TestEndpoint(EndpointId);
+            var priorities = new List<uint>() { 0, 1, 2, 100, 101, 102 };
             ICheckpointer checkpointer = await Checkpointer.CreateAsync(EndpointId, new CheckpointStore());
             var endpointExecutorConfig = new EndpointExecutorConfig(TimeSpan.FromHours(1), RetryStrategy.NoRetry, TimeSpan.FromHours(1));
             var asyncEndpointExecutorOptions = new AsyncEndpointExecutorOptions(RoutingPumpBatchSize, TimeSpan.FromMilliseconds(1));
             var messageStore = new TestMessageStore();
-            var storingAsyncEndpointExecutor = new StoringAsyncEndpointExecutor(endpoint, checkpointer, endpointExecutorConfig, asyncEndpointExecutorOptions, messageStore);
+            var storingAsyncEndpointExecutor = new StoringAsyncEndpointExecutor(endpoint, priorities, checkpointer, endpointExecutorConfig, asyncEndpointExecutorOptions, messageStore);
             IEnumerable<IMessage> messages = GetNewMessages(MessagesCount, 0);
 
             // Act - Send messages to invoke
             foreach (IMessage message in messages)
             {
-                await storingAsyncEndpointExecutor.Invoke(message);
+                await storingAsyncEndpointExecutor.Invoke(message, 0, 3600);
             }
 
             await Task.Delay(TimeSpan.FromSeconds(10));
@@ -145,21 +148,23 @@ namespace Microsoft.Azure.Devices.Routing.Core.Test.Endpoints
             var endpoint1 = new TestEndpoint("id");
             var endpoint2 = new NullEndpoint("id");
             var endpoint3 = new TestEndpoint("id1");
+            var priorities = new List<uint>() { 100, 101, 102, 0, 1, 2 };
             ICheckpointer checkpointer = await Checkpointer.CreateAsync("cid", new CheckpointStore());
             var endpointExecutorConfig = new EndpointExecutorConfig(TimeSpan.FromHours(1), RetryStrategy.NoRetry, TimeSpan.FromHours(1));
             var asyncEndpointExecutorOptions = new AsyncEndpointExecutorOptions(1, TimeSpan.FromSeconds(1));
             var messageStore = new TestMessageStore();
-            var executor = new StoringAsyncEndpointExecutor(endpoint1, checkpointer, endpointExecutorConfig, asyncEndpointExecutorOptions, messageStore);
+            var executor = new StoringAsyncEndpointExecutor(endpoint1, priorities, checkpointer, endpointExecutorConfig, asyncEndpointExecutorOptions, messageStore);
 
             Assert.Equal(endpoint1, executor.Endpoint);
-            await Assert.ThrowsAsync<ArgumentNullException>(() => executor.SetEndpoint(null));
-            await Assert.ThrowsAsync<ArgumentException>(() => executor.SetEndpoint(endpoint3));
+            await Assert.ThrowsAsync<ArgumentNullException>(() => executor.SetEndpoint(null, new List<uint>() { 0 }));
+            await Assert.ThrowsAsync<ArgumentNullException>(() => executor.SetEndpoint(endpoint1, null));
+            await Assert.ThrowsAsync<ArgumentException>(() => executor.SetEndpoint(endpoint3, new List<uint>() { 0 }));
 
-            await executor.SetEndpoint(endpoint2);
+            await executor.SetEndpoint(endpoint2, new List<uint>() { 103, 104, 105, 0, 1, 2, 2 });
             Assert.Equal(endpoint2, executor.Endpoint);
 
             await executor.CloseAsync();
-            await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SetEndpoint(endpoint1));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => executor.SetEndpoint(endpoint1, new List<uint>() { 0 }));
         }
 
         [Fact]
@@ -175,7 +180,7 @@ namespace Microsoft.Azure.Devices.Routing.Core.Test.Endpoints
                 .ReturnsAsync(messages.Skip(30).Take(70));
 
             // Act
-            var messagesProvider = new StoringAsyncEndpointExecutor.StoreMessagesProvider(iterator.Object, TimeSpan.FromSeconds(5), 100);
+            var messagesProvider = new StoringAsyncEndpointExecutor.StoreMessagesProvider(iterator.Object, 100);
 
             // Assert
             await Task.Delay(TimeSpan.FromSeconds(1));
@@ -206,7 +211,7 @@ namespace Microsoft.Azure.Devices.Routing.Core.Test.Endpoints
                 .ReturnsAsync(messages.Skip(200));
 
             // Act
-            var messagesProvider = new StoringAsyncEndpointExecutor.StoreMessagesProvider(iterator.Object, TimeSpan.FromSeconds(5), 100);
+            var messagesProvider = new StoringAsyncEndpointExecutor.StoreMessagesProvider(iterator.Object, 100);
             await Task.Delay(TimeSpan.FromSeconds(1));
             IMessage[] messagesBatch = await messagesProvider.GetMessages();
 
@@ -235,6 +240,52 @@ namespace Microsoft.Azure.Devices.Routing.Core.Test.Endpoints
             Assert.NotNull(messagesBatch);
             Assert.Equal(batchSize, messagesBatch.Length);
             Assert.Equal(messages.Skip(200).Take(100), messagesBatch);
+        }
+
+        [Fact]
+        public async Task StoreMessagesProviderIntermittantMessagesTest()
+        {
+            // Arrange
+            int batchSize = 10;
+            List<IMessage> messages = GetNewMessages(batchSize, 0).ToList();
+            var iterator = new Mock<IMessageIterator>();
+            iterator.SetupSequence(i => i.GetNext(It.IsAny<int>()))
+                .ReturnsAsync(messages.Take(6))
+                .ReturnsAsync(Enumerable.Empty<IMessage>())
+                .ReturnsAsync(messages.Skip(6).Take(1))
+                .ReturnsAsync(messages.Skip(7).Take(1))
+                .ReturnsAsync(Enumerable.Empty<IMessage>())
+                .ReturnsAsync(messages.Skip(8).Take(1))
+                .ReturnsAsync(Enumerable.Empty<IMessage>());
+
+            // Act
+            var messagesProvider = new StoringAsyncEndpointExecutor.StoreMessagesProvider(iterator.Object, batchSize);
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            IMessage[] messagesBatch = await messagesProvider.GetMessages();
+
+            // Assert
+            Assert.NotNull(messagesBatch);
+            Assert.Equal(6, messagesBatch.Length);
+            Assert.Equal(messages.Take(6), messagesBatch);
+
+            // Act
+            messagesBatch = await messagesProvider.GetMessages();
+
+            // Assert
+            Assert.NotNull(messagesBatch);
+            Assert.Equal(2, messagesBatch.Length);
+            Assert.Equal(messages.Skip(6).Take(2), messagesBatch);
+
+            // Act
+            messagesBatch = await messagesProvider.GetMessages();
+
+            // Assert
+            Assert.NotNull(messagesBatch);
+            Assert.Single(messagesBatch);
+            Assert.Equal(messages.Skip(8).Take(1), messagesBatch);
+
+            // Assert
+            iterator.VerifyAll();
         }
 
         static IEnumerable<IMessage> GetNewMessages(int count, int indexStart)
@@ -283,10 +334,18 @@ namespace Microsoft.Azure.Devices.Routing.Core.Test.Endpoints
             {
             }
 
-            public Task<long> Add(string endpointId, IMessage message)
+            public async Task<IMessage> Add(string endpointId, IMessage message)
             {
                 TestMessageQueue queue = this.GetQueue(endpointId);
-                return queue.Add(message);
+                long offset = await queue.Add(message);
+                return new Message(
+                    message.MessageSource,
+                    message.Body,
+                    message.Properties,
+                    message.SystemProperties,
+                    offset,
+                    message.EnqueuedTime,
+                    message.DequeuedTime);
             }
 
             public IMessageIterator GetMessageIterator(string endpointId, long startingOffset) => this.GetQueue(endpointId);
